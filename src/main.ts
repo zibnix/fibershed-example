@@ -1,6 +1,7 @@
 import MaplibreGLBasemapsControl from 'maplibre-gl-basemaps';
 import 'maplibre-gl-basemaps/lib/basemaps.css'
 import {Map, setWorkerUrl, AttributionControl, GeoJSONSource, Popup} from 'maplibre-gl';
+import type { ExpressionSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
@@ -181,5 +182,55 @@ map.on('load', () => {
     map.on('mouseleave', 'clusters', () => {
         map.getCanvas().style.cursor = '';
     });
+});
+
+const data = {} as any;
+
+document.getElementById('nav-filter')?.addEventListener('change', (e) => {
+    let filterOnValue = ['all'];
+    let operator = '==';
+    const target = e.target as HTMLInputElement;
+
+    switch (target?.id) {
+        /// example: `map.setFilter("earthquakes", ["any", [">", "felt", 16.0]])`
+        case 'felt':
+            let operatorFelt = document.getElementById('operator-felt') as HTMLSelectElement;
+            let felt = document.getElementById('range-felt') as HTMLInputElement;
+            operator = operatorFelt?.value;
+
+            target?.checked ? data.felt = Number(felt?.value) : delete data['felt'];
+
+            break;
+
+        /// example: `map.setFilter("earthquakes", ["any", [">", "mag", 5.0]])`
+        case 'mag':
+            let operatorMag = document.getElementById('operator-mag') as HTMLSelectElement;
+            let mag = document.getElementById('range-mag') as HTMLInputElement;
+            operator = operatorMag?.value;
+
+            target?.checked ? data.mag = Number(mag.value) : delete data['mag'];
+
+            break;
+
+        /// example: `map.setFilter("earthquakes", ["any", [">", "tsunami", 0]])`
+        case 'tsunami':
+            let tsunami = document.querySelector('input[type="radio"][name=tsunami]:checked') as HTMLInputElement;
+            operator = '==';
+
+            target.checked ? data.tsunami = Number(tsunami?.value) : delete data['tsunami'];
+
+            break;
+        default:
+            console.log('default');
+    }
+
+    filterOnValue = Object.keys(data);
+
+    let mapLibreFilterSpread = ['all', ...filterOnValue.map(id => [operator, id, data[id]])] as ExpressionSpecification;
+    let mapLibreFilter = mapLibreFilterSpread;
+
+    document.getElementById('filter-result')!!.textContent = JSON.stringify(mapLibreFilter);
+
+    map.setFilter('earthquakes', mapLibreFilter);
 });
 
