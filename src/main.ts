@@ -56,6 +56,69 @@ map.addControl(
     "bottom-left"
 );
 
+class FilterControl {
+    _map: any;
+    _container: any;
+    onAdd(map: any) {
+        this._map = map;
+        this._container = document.createElement('div');
+        this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+
+        this._container.innerHTML = `
+            <div class="map-overlay top">
+                <div class="map-overlay-inner">
+                    <nav>
+                        <fieldset id="container-mag">
+                            <legend>📈 Magnitude</legend>
+                            <div>
+                                <input id="mag" type="checkbox" />
+                                <label for="mag">Apply <code><b>magnitude</b></code> Filter</label>
+                                <div>
+                                    <div>
+                                        <label for="operator-mag">Operator:</label>
+                                        <select name="operator" id="operator-mag">
+                                            <option value=">">&gt;</option>
+                                            <option value="==" selected>==</option>
+                                            <option value="<">&lt;</option>
+                                        </select>
+                                        <br>
+                                        <label for="range-mag">Magnitude:</label>
+                                        <input type="number" id="range-mag" name="range" value="2.71" min="0.0" max="100" />
+                                    </div>
+                                </div>
+                        </fieldset>
+                        <fieldset id="container-tsunami">
+                            <legend>🌊 Tsunami</legend>
+                            <input id="tsunami" type="checkbox" />
+                            <label for="tsunami">Apply <code><b>tsunami</b></code> filter</label>
+                            <div id="radio-tsunamis">
+                                <input type="radio" id="t0" name="tsunami" value="1" /><label for="t0">Tsunamis Only</label>
+                                <input type="radio" id="t1" name="tsunami" value="0" /><label for="t1">Non-Tsunamis Only</label>
+                            </div>
+                        </fieldset>
+                        <fieldset id="container-identifier">
+                            <legend>🪪 ID</legend>
+                            <input id="identifier" type="checkbox" />
+                            <label for="identifier">Apply <code><b>ID</b></code> filter</label>
+                            <div>
+                                <input id="input-identifier" type="search" name="identifier" placeholder="Filter by ID" />
+                            </div>
+                        </fieldset>
+                    </nav>
+                    <hr />
+                </div>
+            </div>`;
+
+        return this._container;
+  }
+
+  onRemove() {
+    this._container.remove();
+  }
+}
+
+map.addControl(new FilterControl(), 'top-left');
+
 const hasPointCountFilter: ExpressionSpecification = ['has', 'point_count'];
 const notPointCountFilter: ExpressionSpecification = ['!', ['has', 'point_count']];
 const clustersID = 'clusters' as const;
