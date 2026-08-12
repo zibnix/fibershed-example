@@ -15,6 +15,10 @@
     margin: 2px;
 }
 
+.maplibregl-ctrl-top-left {
+    z-index: 10 !important;
+}
+
 input[type=number] {
     width: 25%
 }
@@ -77,7 +81,7 @@ input[type=search] {
 
 /* The Magic Trick: When checkbox is checked, expand the menu */
 .menu-checkbox:checked ~ .filters {
-    max-height: calc(100vh - 80px); /* Adjust based on menu height */
+    max-height: calc(100vh - 90px); /* Adjust based on menu height */
 }
 
 /* Optional: Morph hamburger into an 'X' when checked */
