@@ -11,50 +11,68 @@ setWorkerUrl(workerUrl);
 const maptilerKey = import.meta.env.VITE_MAPTILER_API_KEY;
 const dataURL = import.meta.env.VITE_DATA_URL;
 
-const map = new Map({
-    container: 'map',
-    style: {version: 8, sources: {}, layers: []},
-    center: [0, 0],
-    zoom: 1,
-    attributionControl: false,
-});
+let fetchedData: any | null = null;
 
-map.addControl(new AttributionControl({ compact: true }), "bottom-right");
-map.addControl(
-    new MaplibreGLBasemapsControl(
-        {
-            basemaps: [
-                {
-                    id: "Satellite",
-                    tiles: [`https://api.maptiler.com/maps/hybrid-v4/256/{z}/{x}/{y}.jpg?key=${maptilerKey}`],
-                    sourceExtraParams: {
-                        tileSize: 256,
-                        attribution: "&copy; MapTiler",
-                    }
-                },
-                {
-                    id: "Streets",
-                    tiles: [`https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${maptilerKey}`],
-                    sourceExtraParams: {
-                        tileSize: 256,
-                        attribution: "&copy; MapTiler",
-                    }
-                },
-                {
-                    id: "General",
-                    tiles: [`https://api.maptiler.com/maps/base-v4/256/{z}/{x}/{y}.png?key=${maptilerKey}`],
-                    sourceExtraParams: {
-                        tileSize: 256,
-                        attribution: "&copy; MapTiler",
-                    }
-                },
-            ],
-            initialBasemap: "General",
-            expandDirection: "top"
-        }
-    ),
-    "bottom-left"
-);
+const satelliteBasemap = {
+    id: "Satellite",
+    tiles: [`https://api.maptiler.com/maps/hybrid-v4/256/{z}/{x}/{y}.jpg?key=${maptilerKey}`],
+    sourceExtraParams: {
+        tileSize: 256,
+        attribution: "&copy; MapTiler",
+    }
+}
+const streetsBasemap = {
+    id: "Streets",
+    tiles: [`https://api.maptiler.com/maps/streets-v4/256/{z}/{x}/{y}.png?key=${maptilerKey}`],
+    sourceExtraParams: {
+        tileSize: 256,
+        attribution: "&copy; MapTiler",
+    }
+}
+const generalBasemap = {
+    id: "General",
+    tiles: [`https://api.maptiler.com/maps/base-v4/256/{z}/{x}/{y}.png?key=${maptilerKey}`],
+    sourceExtraParams: {
+        tileSize: 256,
+        attribution: "&copy; MapTiler",
+    }
+}
+
+function addPortraitBasemapControl(addTo: Map) {
+    let ctrl = new MaplibreGLBasemapsControl({
+        basemaps: [
+            satelliteBasemap,
+            streetsBasemap,
+            generalBasemap,
+        ],
+        initialBasemap: "General",
+        expandDirection: "top"
+    });
+    addTo.addControl(ctrl, 'bottom-left');
+}
+
+function addLandscapeBasemapControl(addTo: Map) {
+    let ctrl = new MaplibreGLBasemapsControl({
+        basemaps: [
+            generalBasemap,
+            streetsBasemap,
+            satelliteBasemap,
+        ],
+        initialBasemap: "General",
+        expandDirection: "left"
+    });
+    addTo.addControl(ctrl, 'top-right');
+}
+
+function setBasemapControl(addTo: Map) {
+    if (window.matchMedia("(orientation: portrait)").matches) {
+        addPortraitBasemapControl(addTo);
+    } else if (window.matchMedia("(orientation: landscape)").matches) {
+        addLandscapeBasemapControl(addTo);
+    } else {
+        addPortraitBasemapControl(addTo);
+    }
+}
 
 class FilterControl {
     _map: any;
@@ -65,8 +83,18 @@ class FilterControl {
         this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
 
         this._container.innerHTML = `
-            <div class="map-overlay top">
-                <div class="map-overlay-inner">
+        <nav class="navbar">
+            <!-- Hidden checkbox to manage the toggle state -->
+            <input type="checkbox" id="menu-toggle" class="menu-checkbox">
+
+            <!-- Hamburger icon linked to the checkbox -->
+            <label for="menu-toggle" class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </label>
+            <div class="map-overlay filters">
+                <div class="map-overlay-inner menu-content">
                     <nav>
                         <fieldset id="container-mag">
                             <legend>📈 Magnitude</legend>
@@ -105,9 +133,9 @@ class FilterControl {
                             </div>
                         </fieldset>
                     </nav>
-                    <hr />
                 </div>
-            </div>`;
+            </div>
+        </nav>`;
 
         return this._container;
   }
@@ -117,7 +145,52 @@ class FilterControl {
   }
 }
 
-map.addControl(new FilterControl(), 'top-left');
+let currentMap: Map | null;
+
+function createMap(): Map {
+    if (currentMap) {
+        removeLayers(currentMap);
+        currentMap.remove();
+        currentMap = null;
+    }
+
+    const newMap = new Map({
+        container: 'map',
+        style: {version: 8, sources: {}, layers: []},
+        center: [0, 0],
+        zoom: 1,
+        attributionControl: false,
+    });
+
+    setBasemapControl(newMap);
+    newMap.addControl(new AttributionControl({ compact: true }), "bottom-right");
+    newMap.addControl(new FilterControl(), 'top-left');
+
+    newMap.on('load', () => {
+        if (fetchedData) {
+            createLayers(newMap, fetchedData);
+            return;
+        }
+
+        fetch(dataURL).then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.text();
+        }).then(data => {
+            fetchedData = csvToFeatureCollection(data);
+            createLayers(newMap, fetchedData!!);
+        });
+    });
+
+    return newMap;
+}
+
+currentMap = createMap();
+
+window.matchMedia("(orientation: portrait)").addEventListener("change", _e => {
+    currentMap = createMap();
+});
 
 const hasPointCountFilter: ExpressionSpecification = ['has', 'point_count'];
 const notPointCountFilter: ExpressionSpecification = ['!', ['has', 'point_count']];
@@ -137,7 +210,13 @@ function createSource(featureCollection: any) {
     } as const;
 }
 
-function createLayers(featureCollection: any) {
+function removeLayers(map: Map) {
+    map.removeLayer(clustersID);
+    map.removeLayer(clusterCountID);
+    map.removeLayer(unclusteredPointID);
+}
+
+function createLayers(map: Map, featureCollection: any) {
     // Add a new source from our GeoJSON data and
     // set the 'cluster' option to true. GL-JS will
     // add the point_count property to your source data.
@@ -166,11 +245,11 @@ function createLayers(featureCollection: any) {
             'circle-radius': [
                 'step',
                 ['get', 'point_count'],
-                20,
+                25,
                 100,
-                30,
+                35,
                 750,
-                40
+                45
             ]
         }
     });
@@ -194,9 +273,9 @@ function createLayers(featureCollection: any) {
         filter: notPointCountFilter,
         paint: {
             'circle-color': '#11b4da',
-            'circle-radius': 4,
+            'circle-radius': 8,
             'circle-stroke-width': 1,
-            'circle-stroke-color': '#fff'
+            'circle-stroke-color': '#000'
         }
     });
 
@@ -331,20 +410,6 @@ function csvToFeatureCollection(csv: string): any {
 
     return fc;
 }
-
-let fetchedData: any | null = null;
-
-map.on('load', () => {
-    fetch(dataURL).then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.text();
-    }).then(data => {
-        fetchedData = csvToFeatureCollection(data);
-        createLayers(fetchedData!!);
-    });
-});
 
 interface MagnitudeComparison {
     mag: number;
@@ -501,5 +566,15 @@ function updateLayers() {
         filteredData.features = filteredData.features.filter(identifierFilterFunc);
     }
 
-    (map.getSource('earthquakes-clustered') as GeoJSONSource).setData(filteredData);
+    (currentMap?.getSource('earthquakes-clustered') as GeoJSONSource).setData(filteredData);
 }
+
+const menu = document.querySelector(".menu");
+
+menu?.addEventListener("click", () => {
+    const activeElements = document.querySelectorAll(".active-element");
+    console.log(activeElements);
+    for(let i = 0; i < activeElements.length; i++) {
+        activeElements[i].classList.toggle("active");
+    }
+});
