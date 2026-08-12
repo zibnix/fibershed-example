@@ -1,3 +1,4 @@
+import './style.css';
 import MaplibreGLBasemapsControl from 'maplibre-gl-basemaps';
 import 'maplibre-gl-basemaps/lib/basemaps.css'
 import {Map, setWorkerUrl, AttributionControl, GeoJSONSource, Popup} from 'maplibre-gl';
@@ -16,6 +17,7 @@ const map = new Map({
     zoom: 1,
     attributionControl: false,
 });
+
 map.addControl(new AttributionControl({ compact: true }), "bottom-right");
 map.addControl(
     new MaplibreGLBasemapsControl(
@@ -53,25 +55,35 @@ map.addControl(
     "bottom-left"
 );
 
-map.on('load', () => {
-    // Add a new source from our GeoJSON data and
-    // set the 'cluster' option to true. GL-JS will
-    // add the point_count property to your source data.
-    map.addSource('earthquakes', {
+const hasPointCountFilter: ExpressionSpecification = ['has', 'point_count'];
+const notPointCountFilter: ExpressionSpecification = ['!', ['has', 'point_count']];
+const clustersID = 'clusters' as const;
+const clusterCountID = 'cluster-count' as const;
+const unclusteredPointID = 'unclustered-point' as const;
+
+function createSource(featureCollection: any) {
+    return {
         type: 'geojson',
         // Point to GeoJSON data. This example visualizes all M1.0+ earthquakes
         // from 12/22/15 to 1/21/16 as logged by USGS' Earthquake hazards program.
-        data: 'https://maplibre.org/maplibre-gl-js/docs/assets/earthquakes.geojson',
+        data: featureCollection,
         cluster: true,
         clusterMaxZoom: 14, // Max zoom to cluster points on
         clusterRadius: 50 // Radius of each cluster when clustering points (defaults to 50)
-    });
+    } as const;
+}
+
+function createLayers(featureCollection: any) {
+    // Add a new source from our GeoJSON data and
+    // set the 'cluster' option to true. GL-JS will
+    // add the point_count property to your source data.
+    map.addSource('earthquakes-clustered', createSource(featureCollection));
 
     map.addLayer({
-        id: 'clusters',
+        id: clustersID,
         type: 'circle',
-        source: 'earthquakes',
-        filter: ['has', 'point_count'],
+        source: 'earthquakes-clustered',
+        filter: hasPointCountFilter,
         paint: {
             // Use step expressions (https://maplibre.org/maplibre-style-spec/#expressions-step)
             // with three steps to implement three types of circles:
@@ -100,10 +112,10 @@ map.on('load', () => {
     });
 
     map.addLayer({
-        id: 'cluster-count',
+        id: clusterCountID,
         type: 'symbol',
-        source: 'earthquakes',
-        filter: ['has', 'point_count'],
+        source: 'earthquakes-clustered',
+        filter: hasPointCountFilter,
         layout: {
             'text-field': '{point_count_abbreviated}',
             'text-font': ['Noto Sans Regular'],
@@ -112,10 +124,10 @@ map.on('load', () => {
     });
 
     map.addLayer({
-        id: 'unclustered-point',
+        id: unclusteredPointID,
         type: 'circle',
-        source: 'earthquakes',
-        filter: ['!', ['has', 'point_count']],
+        source: 'earthquakes-clustered',
+        filter: notPointCountFilter,
         paint: {
             'circle-color': '#11b4da',
             'circle-radius': 4,
@@ -130,7 +142,7 @@ map.on('load', () => {
             layers: ['clusters']
         });
         const clusterId = features[0].properties.cluster_id;
-        const source = map.getSource('earthquakes') as GeoJSONSource
+        const source = map.getSource('earthquakes-clustered') as GeoJSONSource
         const zoom = await source.getClusterExpansionZoom(clusterId);
         map.easeTo({
             center: features[0].geometry.coordinates,
@@ -182,55 +194,104 @@ map.on('load', () => {
     map.on('mouseleave', 'clusters', () => {
         map.getCanvas().style.cursor = '';
     });
+}
+
+let fetchedData: any | null = null;
+
+map.on('load', () => {
+    fetch('https://maplibre.org/maplibre-gl-js/docs/assets/earthquakes.geojson').then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+    }).then(data => {
+        fetchedData = data;
+        createLayers(fetchedData!!);
+    });
 });
 
-const data = {} as any;
+interface MagnitudeComparison {
+    mag: number;
+    comparison: (a: number, b: number) => boolean;
+}
+
+const operators = {
+  '>':   (a: number, b: number) => a > b,
+  '==': (a: number, b: number) => a == b,
+  '<':   (a: number, b: number) => a < b,
+};
+
+let magCheckState = false;
+let tsunamiCheckState = false;
 
 document.getElementById('nav-filter')?.addEventListener('change', (e) => {
-    let filterOnValue = ['all'];
-    let operator = '==';
     const target = e.target as HTMLInputElement;
 
-    switch (target?.id) {
-        /// example: `map.setFilter("earthquakes", ["any", [">", "felt", 16.0]])`
-        case 'felt':
-            let operatorFelt = document.getElementById('operator-felt') as HTMLSelectElement;
-            let felt = document.getElementById('range-felt') as HTMLInputElement;
-            operator = operatorFelt?.value;
+    let filterMag: MagnitudeComparison | null = null;
+    let filterTsunami: number | null = null;
+    let unchecked = false;
 
-            target?.checked ? data.felt = Number(felt?.value) : delete data['felt'];
-
-            break;
-
-        /// example: `map.setFilter("earthquakes", ["any", [">", "mag", 5.0]])`
+    switch (target.id) {
         case 'mag':
+        case 'operator-mag':
+        case 'range-mag':
+            let mag = document.getElementById('mag') as HTMLInputElement;
             let operatorMag = document.getElementById('operator-mag') as HTMLSelectElement;
-            let mag = document.getElementById('range-mag') as HTMLInputElement;
-            operator = operatorMag?.value;
+            let rangeMag = document.getElementById('range-mag') as HTMLInputElement;
+            let operator = operatorMag.value as keyof typeof operators;
 
-            target?.checked ? data.mag = Number(mag.value) : delete data['mag'];
+            if (mag.checked) {
+                magCheckState = true;
+                filterMag = {
+                    mag: Number(rangeMag.value).valueOf(),
+                    comparison: operators[operator] as (a: number, b: number) => boolean,
+                };
+            } else if (magCheckState === true) {
+                magCheckState = false;
+                unchecked = true;
+            }
 
             break;
 
-        /// example: `map.setFilter("earthquakes", ["any", [">", "tsunami", 0]])`
         case 'tsunami':
-            let tsunami = document.querySelector('input[type="radio"][name=tsunami]:checked') as HTMLInputElement;
-            operator = '==';
+        case 't0':
+        case 't1':
+            let tsunami = document.getElementById('tsunami') as HTMLInputElement;
+            let radio = document.querySelector('input[type="radio"][name=tsunami]:checked') as HTMLInputElement | null;
 
-            target.checked ? data.tsunami = Number(tsunami?.value) : delete data['tsunami'];
+            if (radio !== null && tsunami.checked) {
+                tsunamiCheckState = true;
+                filterTsunami = Number(radio.value).valueOf();
+            } else if (tsunamiCheckState === true) {
+                tsunamiCheckState = false;
+                unchecked = true;
+            }
 
             break;
         default:
             console.log('default');
     }
 
-    filterOnValue = Object.keys(data);
-
-    let mapLibreFilterSpread = ['all', ...filterOnValue.map(id => [operator, id, data[id]])] as ExpressionSpecification;
-    let mapLibreFilter = mapLibreFilterSpread;
-
-    document.getElementById('filter-result')!!.textContent = JSON.stringify(mapLibreFilter);
-
-    map.setFilter('earthquakes', mapLibreFilter);
+    if (filterMag || filterTsunami !== null || unchecked === true) {
+        updateLayers(filterMag, filterTsunami)
+    }
 });
 
+function updateLayers(mag: MagnitudeComparison | null, tsunami: number | null) {
+    if (!fetchedData) return;
+
+    let filteredData = {
+        type: 'FeatureCollection',
+        crs: fetchedData.crs,
+        features: fetchedData.features,
+    };
+    if (mag !== null) {
+        filteredData.features = filteredData.features.filter((f: any) => mag.comparison(f.properties.mag, mag.mag));
+    }
+
+    if (tsunami !== null) {
+        filteredData.features = filteredData.features.filter((f: any) => f.properties.tsunami == tsunami)
+    }
+
+    (map.getSource('earthquakes-clustered') as GeoJSONSource).setData(filteredData);
+}
