@@ -72,12 +72,13 @@ input[type=search] {
     flex-direction: column;
     max-height: 0;
     overflow: hidden;
+    overflow-y: auto;
     transition: max-height 0.3s;
 }
 
 /* The Magic Trick: When checkbox is checked, expand the menu */
 .menu-checkbox:checked ~ .filters {
-    max-height: 520; /* Adjust based on menu height */
+    max-height: 90vh; /* Adjust based on menu height */
 }
 
 /* Optional: Morph hamburger into an 'X' when checked */
