@@ -9,6 +9,7 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 setWorkerUrl(workerUrl);
 
 const maptilerKey = import.meta.env.VITE_MAPTILER_API_KEY;
+const dataURL = import.meta.env.VITE_DATA_URL;
 
 const map = new Map({
     container: 'map',
@@ -156,11 +157,27 @@ function createLayers(featureCollection: any) {
     // description HTML from its properties.
     map.on('click', 'unclustered-point', (e) => {
         const feat = e.features?.[0];
-        const coordinates = feat?.geometry.coordinates.slice();
-        const mag = feat?.properties.mag;
+        if (!feat) return;
+
+        const coords = feat.geometry.coordinates;
+        const coordinates = coords.slice();
+        const id = feat.properties.id;
+        const mag = feat.properties.mag;
+        const date = new Date(feat.properties.time);
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'UTC',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
         let tsunami;
 
-        if (feat?.properties.tsunami === 1) {
+        if (feat.properties.tsunami === 1) {
             tsunami = 'yes';
         } else {
             tsunami = 'no';
@@ -176,7 +193,7 @@ function createLayers(featureCollection: any) {
         new Popup()
             .setLngLat(coordinates)
             .setHTML(
-                `magnitude: ${mag}<br>Was there a tsunami?: ${tsunami}`
+                `ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${formatter.format(date)} UTC`
             )
             .addTo(map);
     });
@@ -196,16 +213,72 @@ function createLayers(featureCollection: any) {
     });
 }
 
+function csvToFeatureCollection(csv: string): any {
+    let fc: { type: string, features: any[] } = {
+        type: 'FeatureCollection',
+        features: [],
+    };
+    const lines = csv.split('\n').map((line: string) => line.trim()).filter(Boolean);
+    if (lines.length === 0) return fc
+
+    // Extract headers
+    const headers = lines[0].split(',');
+
+    // Process data lines
+    fc.features = lines.slice(1).map(line => {
+        let feature: { type: string, geometry: { type: string, coordinates: number[] }, properties: { [key: string]: any; } } = {
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [0.0, 0.0, 0.0],
+            },
+            properties: {},
+        };
+        const values = line.split(',');
+
+        headers.forEach((header, index) => {
+            const value = values[index] ?? '';
+            switch (header) {
+                case 'X':
+                    feature.geometry.coordinates[0] = parseFloat(value);
+                    break;
+                case 'Y':
+                    feature.geometry.coordinates[1] = parseFloat(value);
+                    break;
+                case 'Z':
+                    feature.geometry.coordinates[2] = parseFloat(value);
+                    break;
+                case 'id':
+                    feature.properties.id = value;
+                    break;
+                case 'mag':
+                    feature.properties.mag = parseFloat(value);
+                    break;
+                case 'time':
+                    feature.properties.time = parseInt(value);
+                    break;
+                case 'tsunami':
+                    feature.properties.tsunami = parseInt(value);
+                    break;
+            }
+        });
+
+        return feature;
+    });
+
+    return fc;
+}
+
 let fetchedData: any | null = null;
 
 map.on('load', () => {
-    fetch('https://maplibre.org/maplibre-gl-js/docs/assets/earthquakes.geojson').then(response => {
+    fetch(dataURL).then(response => {
         if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
         }
-        return response.json();
+        return response.text();
     }).then(data => {
-        fetchedData = data;
+        fetchedData = csvToFeatureCollection(data);
         createLayers(fetchedData!!);
     });
 });
@@ -222,13 +295,11 @@ const operators = {
 };
 
 let magCheckState = false;
-let tsunamiCheckState = false;
-
-document.getElementById('nav-filter')?.addEventListener('change', (e) => {
+let magFilterFunc: ((f: any) => boolean) | null = null;
+document.getElementById('container-mag')?.addEventListener('change', (e) => {
     const target = e.target as HTMLInputElement;
 
     let filterMag: MagnitudeComparison | null = null;
-    let filterTsunami: number | null = null;
     let unchecked = false;
 
     switch (target.id) {
@@ -253,6 +324,27 @@ document.getElementById('nav-filter')?.addEventListener('change', (e) => {
 
             break;
 
+        default:
+            console.log('default');
+    }
+
+    if (filterMag !== null) {
+        magFilterFunc = (f) => filterMag.comparison(f.properties.mag, filterMag.mag);
+        updateLayers();
+    } else if (unchecked) {
+        magFilterFunc = null;
+        updateLayers();
+    }
+});
+
+let tsunamiCheckState = false;
+let tsunamiFilterFunc: ((f: any) => boolean) | null = null;
+document.getElementById('container-tsunami')?.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    let filterTsunami: number | null = null;
+    let unchecked = false;
+
+    switch (target.id) {
         case 'tsunami':
         case 't0':
         case 't1':
@@ -262,22 +354,70 @@ document.getElementById('nav-filter')?.addEventListener('change', (e) => {
             if (radio !== null && tsunami.checked) {
                 tsunamiCheckState = true;
                 filterTsunami = Number(radio.value).valueOf();
-            } else if (tsunamiCheckState === true) {
+            } else if (!tsunami.checked && tsunamiCheckState === true) {
                 tsunamiCheckState = false;
                 unchecked = true;
             }
 
             break;
+
         default:
             console.log('default');
     }
 
-    if (filterMag || filterTsunami !== null || unchecked === true) {
-        updateLayers(filterMag, filterTsunami)
+    if (filterTsunami !== null){
+        tsunamiFilterFunc = (f) => f.properties.tsunami == filterTsunami;
+        updateLayers();
+    } else if (unchecked === true) {
+        tsunamiFilterFunc = null;
+        updateLayers();
     }
 });
 
-function updateLayers(mag: MagnitudeComparison | null, tsunami: number | null) {
+let identifierCheckState = false;
+let previousIdentifierInput = '';
+let identifierFilterFunc: ((f: any) => boolean) | null = null;
+function handleIdentifierEvent(e: Event) {
+    const target = e.target as HTMLInputElement;
+
+    let filterIdentifier: string | null = null;
+    let unchecked = false;
+
+    switch (target.id) {
+        case 'identifier':
+        case 'input-identifier':
+            let identifier = document.getElementById('identifier') as HTMLInputElement;
+            let inputIdentifier = document.getElementById('input-identifier') as HTMLInputElement;
+
+            const inputValue = inputIdentifier.value.trim().toLowerCase();
+            if (inputValue !== previousIdentifierInput && identifier.checked) {
+                identifierCheckState = true;
+                filterIdentifier = inputValue;
+                previousIdentifierInput = inputValue;
+            } else if (!identifier.checked && identifierCheckState === true) {
+                identifierCheckState = false;
+                previousIdentifierInput = '';
+                unchecked = true;
+            }
+
+            break;
+
+        default:
+            console.log('default');
+    }
+
+    if (filterIdentifier !== null) {
+        identifierFilterFunc = (f) => f.properties.id.indexOf(filterIdentifier) > -1;
+        updateLayers();
+    } else if (unchecked === true) {
+        identifierFilterFunc = null;
+        updateLayers();
+    }
+}
+document.getElementById('container-identifier')?.addEventListener('keyup', handleIdentifierEvent);
+document.getElementById('container-identifier')?.addEventListener('change', handleIdentifierEvent);
+
+function updateLayers() {
     if (!fetchedData) return;
 
     let filteredData = {
@@ -285,12 +425,17 @@ function updateLayers(mag: MagnitudeComparison | null, tsunami: number | null) {
         crs: fetchedData.crs,
         features: fetchedData.features,
     };
-    if (mag !== null) {
-        filteredData.features = filteredData.features.filter((f: any) => mag.comparison(f.properties.mag, mag.mag));
+
+    if (magFilterFunc !== null) {
+        filteredData.features = filteredData.features.filter(magFilterFunc);
     }
 
-    if (tsunami !== null) {
-        filteredData.features = filteredData.features.filter((f: any) => f.properties.tsunami == tsunami)
+    if (tsunamiFilterFunc !== null) {
+        filteredData.features = filteredData.features.filter(tsunamiFilterFunc);
+    }
+
+    if (identifierFilterFunc !== null) {
+        filteredData.features = filteredData.features.filter(identifierFilterFunc);
     }
 
     (map.getSource('earthquakes-clustered') as GeoJSONSource).setData(filteredData);

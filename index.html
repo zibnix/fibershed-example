@@ -14,12 +14,12 @@
     <div id="map"></div>
     <div class="map-overlay top">
         <div class="map-overlay-inner">
-            <nav id="nav-filter">
-                <fieldset>
+            <nav>
+                <fieldset id="container-mag">
                     <legend>📈 Magnitude</legend>
                     <div>
                         <input id="mag" type="checkbox" />
-                        <label for="mag">Apply <code>magnitude</code> Filter</label>
+                        <label for="mag">Apply <code><b>magnitude</b></code> Filter</label>
                         <div>
                             <div>
                                 <label for="operator-mag">Operator:</label>
@@ -35,18 +35,26 @@
                         </div>
                 </fieldset>
 
-                <fieldset>
-                    <legend>🌊 Tsunami (0 or 1)</legend>
+                <fieldset id="container-tsunami">
+                    <legend>🌊 Tsunami</legend>
                     <input id="tsunami" type="checkbox" />
-                    <label for="tsunami">Apply <code>tsunami</code> filter</label>
+                    <label for="tsunami">Apply <code><b>tsunami</b></code> filter</label>
                     <div id="radio-tsunamis">
                         <input type="radio" id="t0" name="tsunami" value="1" /><label for="t0">Tsunamis Only</label>
                         <input type="radio" id="t1" name="tsunami" value="0" /><label for="t1">Non-Tsunamis Only</label>
                     </div>
                 </fieldset>
+
+                <fieldset id="container-identifier">
+                    <legend>🪪 ID</legend>
+                    <input id="identifier" type="checkbox" />
+                    <label for="identifier">Apply <code><b>ID</b></code> filter</label>
+                    <div>
+                        <input id="input-identifier" type="search" name="identifier" placeholder="Filter by ID" />
+                    </div>
+                </fieldset>
             </nav>
             <hr />
-            <div id='filter-result'>["all"]</div>
         </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
