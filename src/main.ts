@@ -361,7 +361,6 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
         let addedToMap = false;
 
         driveImageURLsFromDataID(id, imageIDs).then(urls => alreadyCached(urls)).then(([cached, urls]) => {
-            console.log(cached);
             if (cached === false) {
                 pop.addTo(map);
                 addedToMap = true;
@@ -432,7 +431,7 @@ async function cacheImage(url: string): Promise<string> {
     let response = await cache.match(url);
 
     if (!response) {
-        response = await fetch(url);
+        response = await fetchErrorCheck(url);
         await cache.put(url, response.clone());
     }
 
@@ -677,16 +676,6 @@ function updateLayers() {
 
     (currentMap?.getSource('earthquakes-clustered') as GeoJSONSource).setData(filteredData);
 }
-
-const menu = document.querySelector(".menu");
-
-menu?.addEventListener("click", () => {
-    const activeElements = document.querySelectorAll(".active-element");
-    console.log(activeElements);
-    for(let i = 0; i < activeElements.length; i++) {
-        activeElements[i].classList.toggle("active");
-    }
-});
 
 function generateUrlFriendlyString(length: number = 21): string {
   // Define strictly URL-safe characters (RFC 3986 unreserved characters)
