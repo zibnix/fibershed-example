@@ -12,7 +12,8 @@ const maptilerKey = import.meta.env.VITE_MAPTILER_API_KEY;
 const dataURL = import.meta.env.VITE_DATA_URL;
 const googleAPIKey = import.meta.env.VITE_GOOGLE_API_KEY;
 const driveFolderID = import.meta.env.VITE_DRIVE_FOLDER_ID;
-const driveURL = `https://www.googleapis.com/drive/v3/files?q='${driveFolderID}'+in+parents+and+mimeType+contains+'image/'+and+trashed+=+false&pageSize=1000&orderBy=name_natural&fields=files(name,+id)&key=${googleAPIKey}`
+const quotaUserID = generateUrlFriendlyString();
+const driveURL = `https://www.googleapis.com/drive/v3/files?q='${driveFolderID}'+in+parents+and+mimeType+contains+'image/'+and+trashed+=+false&pageSize=1000&orderBy=name_natural&fields=files(name,+id)&quotaUser=${quotaUserID}&key=${googleAPIKey}`
 
 const satelliteBasemap = {
     id: "Satellite",
@@ -461,7 +462,7 @@ function imageIDsJSONToArray(imageIDsJSON: any): ImageID[] {
 async function driveImageURLsFromDataID(dataID: string, imageIDs: ImageID[]): Promise<string[]> {
     return imageIDs.reduce((acc, imageID) => {
         if (imageID.name.includes(dataID)) {
-            acc.push(`https://www.googleapis.com/drive/v3/files/${imageID.id}?alt=media&key=${googleAPIKey}`);
+            acc.push(`https://www.googleapis.com/drive/v3/files/${imageID.id}?alt=media&quotaUser=${quotaUserID}&key=${googleAPIKey}`);
         }
         return acc;
     }, [] as string[]);
@@ -634,3 +635,21 @@ menu?.addEventListener("click", () => {
         activeElements[i].classList.toggle("active");
     }
 });
+
+function generateUrlFriendlyString(length: number = 21): string {
+  // Define strictly URL-safe characters (RFC 3986 unreserved characters)
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const charsLength = chars.length;
+
+  // Create a typed array to hold random byte values
+  const randomBytes = new Uint8Array(length);
+  crypto.getRandomValues(randomBytes);
+
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    // Map each random byte to an index in our character string
+    result += chars[randomBytes[i] % charsLength];
+  }
+
+  return result;
+}
