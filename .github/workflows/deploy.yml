@@ -42,7 +42,7 @@ jobs:
         env:
           VITE_MAPTILER_API_KEY: ${{ secrets.VITE_MAPTILER_API_KEY }}
           VITE_DATA_URL: ${{ secrets.VITE_DATA_URL }}
-          VITE_GOOGLE_API_CLIENT_ID: ${{ secrets.VITE_GOOGLE_API_CLIENT_ID }}
+          VITE_GOOGLE_API_KEY: ${{ secrets.VITE_GOOGLE_API_KEY }}
           VITE_DRIVE_FOLDER_ID: ${{ secrets.VITE_DRIVE_FOLDER_ID }}
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
