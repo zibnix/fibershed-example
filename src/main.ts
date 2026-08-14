@@ -356,10 +356,17 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        driveImageURLsFromDataID(id, imageIDs).then(urls => {
-            let imagesHTML = '<div style="display: flex; overflow-x: auto; gap: 8px; width: 100%;">';
+        driveImageURLsFromDataID(id, imageIDs).then(async (urls) => {
+            const promises: Promise<string>[] = [];
             urls.forEach((url) => {
-                imagesHTML += `<img src="${url}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`
+                promises.push(cacheImage(url));
+            });
+
+            return Promise.all(promises);
+        }).then(cached => {
+            let imagesHTML = '<div style="display: flex; overflow-x: auto; gap: 8px; width: 100%;">';
+            cached.forEach((objURL) => {
+                imagesHTML += `<img src="${objURL}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`
             });
             imagesHTML += '</div>'
 
@@ -386,6 +393,21 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
     map.on('mouseleave', 'clusters', () => {
         map.getCanvas().style.cursor = '';
     });
+}
+
+const cacheName = 'fibershed-example-cache-v1';
+
+async function cacheImage(url: string): Promise<string> {
+    const cache = await caches.open(cacheName);
+    let response = await cache.match(url);
+
+    if (!response) {
+        response = await fetch(url);
+        await cache.put(url, response.clone());
+    }
+
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
 }
 
 function dataCSVToFeatureCollection(csv: string): any {
