@@ -10,8 +10,9 @@ setWorkerUrl(workerUrl);
 
 const maptilerKey = import.meta.env.VITE_MAPTILER_API_KEY;
 const dataURL = import.meta.env.VITE_DATA_URL;
-
-let fetchedData: any | null = null;
+const googleAPIKey = import.meta.env.VITE_GOOGLE_API_KEY;
+const driveFolderID = import.meta.env.VITE_DRIVE_FOLDER_ID;
+const driveURL = `https://www.googleapis.com/drive/v3/files?q='${driveFolderID}'+in+parents+and+mimeType+contains+'image/'+and+trashed+=+false&pageSize=1000&orderBy=name_natural&fields=files(name,+id)&key=${googleAPIKey}`
 
 const satelliteBasemap = {
     id: "Satellite",
@@ -145,7 +146,14 @@ class FilterControl {
   }
 }
 
+type ImageID = {
+    name: string;
+    id: string;
+}
+
 let currentMap: Map | null;
+let fetchedData: any | null = null;
+let fetchedImageIDs: ImageID[] | null  = null;
 
 function createMap(): Map {
     if (currentMap) {
@@ -167,23 +175,39 @@ function createMap(): Map {
     newMap.addControl(new FilterControl(), 'top-left');
 
     newMap.on('load', () => {
-        if (fetchedData) {
-            createLayers(newMap, fetchedData);
+        if (fetchedData && fetchedImageIDs) {
+            createLayers(newMap, fetchedData, fetchedImageIDs);
             return;
         }
 
-        fetch(dataURL).then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! Status: ${response.status}`);
-            }
+        const dataPromise = fetchErrorCheck(dataURL).then(response => {
             return response.text();
-        }).then(data => {
-            fetchedData = csvToFeatureCollection(data);
-            createLayers(newMap, fetchedData!!);
+        }).then(async (data) => {
+            return dataCSVToFeatureCollection(data);
+        });
+        const imageIDsPromise = fetchErrorCheck(driveURL).then(response => {
+            return response.json();
+        }).then(async (data) => {
+            return imageIDsJSONToArray(data);
+        });
+
+        Promise.all([dataPromise, imageIDsPromise]).then(([csv, arr]) => {
+            fetchedData = csv;
+            fetchedImageIDs = arr;
+            createLayers(newMap, fetchedData!!, fetchedImageIDs!!);
         });
     });
 
     return newMap;
+}
+
+function fetchErrorCheck(url: string): Promise<Response> {
+    return fetch(url).then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response;
+    })
 }
 
 currentMap = createMap();
@@ -216,7 +240,7 @@ function removeLayers(map: Map) {
     map.removeLayer(unclusteredPointID);
 }
 
-function createLayers(map: Map, featureCollection: any) {
+function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
     // Add a new source from our GeoJSON data and
     // set the 'cluster' option to true. GL-JS will
     // add the point_count property to your source data.
@@ -301,11 +325,10 @@ function createLayers(map: Map, featureCollection: any) {
         const feat = e.features?.[0];
         if (!feat) return;
 
+        const id = feat.properties.id;
         const coords = feat.geometry.coordinates;
         const coordinates = coords.slice();
-        const id = feat.properties.id;
         const mag = feat.properties.mag;
-        const date = new Date(feat.properties.time);
         const formatter = new Intl.DateTimeFormat('en-US', {
             timeZone: 'UTC',
             year: 'numeric',
@@ -316,9 +339,9 @@ function createLayers(map: Map, featureCollection: any) {
             second: '2-digit',
             hour12: false
         });
+        const date = formatter.format(new Date(feat.properties.time));
 
         let tsunami;
-
         if (feat.properties.tsunami === 1) {
             tsunami = 'yes';
         } else {
@@ -332,16 +355,25 @@ function createLayers(map: Map, featureCollection: any) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        new Popup()
-            .setLngLat(coordinates)
-            .setHTML(
-                `ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${formatter.format(date)} UTC`
-            )
-            .addTo(map);
+        driveImageURLsFromDataID(id, imageIDs).then(urls => {
+            let imagesHTML = '<div style="display: flex; overflow-x: auto; gap: 8px; width: 100%;">';
+            urls.forEach((url) => {
+                imagesHTML += `<img src="${url}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`
+            });
+            imagesHTML += '</div>'
+
+            new Popup()
+                .setLngLat(coordinates)
+                .setHTML(
+                    `<div>ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${date} UTC</div>${imagesHTML}`
+                )
+                .addTo(map);
+        });
     });
 
     map.on('mouseenter', 'unclustered-point', () => {
         map.getCanvas().style.cursor = 'pointer';
+
     });
     map.on('mouseleave', 'unclustered-point', () => {
         map.getCanvas().style.cursor = '';
@@ -355,7 +387,7 @@ function createLayers(map: Map, featureCollection: any) {
     });
 }
 
-function csvToFeatureCollection(csv: string): any {
+function dataCSVToFeatureCollection(csv: string): any {
     let fc: { type: string, features: any[] } = {
         type: 'FeatureCollection',
         features: [],
@@ -409,6 +441,30 @@ function csvToFeatureCollection(csv: string): any {
     });
 
     return fc;
+}
+
+function imageIDsJSONToArray(imageIDsJSON: any): ImageID[] {
+    const imageIDs: ImageID[] = [];
+
+    if (!imageIDsJSON || !(imageIDsJSON.files) || !(imageIDsJSON.files.length)) {
+        console.log("Could not fetch image information from drive, images may not appear.");
+        return imageIDs;
+    }
+
+    imageIDsJSON.files.forEach((file: any) => {
+        imageIDs.push({name: file.name, id: file.id});
+    });
+
+    return imageIDs;
+}
+
+async function driveImageURLsFromDataID(dataID: string, imageIDs: ImageID[]): Promise<string[]> {
+    return imageIDs.reduce((acc, imageID) => {
+        if (imageID.name.includes(dataID)) {
+            acc.push(`https://www.googleapis.com/drive/v3/files/${imageID.id}?alt=media&key=${googleAPIKey}`);
+        }
+        return acc;
+    }, [] as string[]);
 }
 
 interface MagnitudeComparison {
