@@ -356,26 +356,35 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        driveImageURLsFromDataID(id, imageIDs).then(async (urls) => {
+        let innerHTML = `<div>ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${date} UTC</div>`;
+        const pop = new Popup().setLngLat(coordinates).setHTML(innerHTML)
+        let addedToMap = false;
+
+        driveImageURLsFromDataID(id, imageIDs).then(urls => alreadyCached(urls)).then(([cached, urls]) => {
+            console.log(cached);
+            if (cached === false) {
+                pop.addTo(map);
+                addedToMap = true;
+            }
+
             const promises: Promise<string>[] = [];
             urls.forEach((url) => {
                 promises.push(cacheImage(url));
             });
 
             return Promise.all(promises);
-        }).then(cached => {
+        }).then(objURLs => {
             let imagesHTML = '<div style="display: flex; overflow-x: auto; gap: 8px; width: 100%;">';
-            cached.forEach((objURL) => {
-                imagesHTML += `<img src="${objURL}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`
+            objURLs.forEach((objURL) => {
+                imagesHTML += `<img src="${objURL}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`;
             });
-            imagesHTML += '</div>'
+            imagesHTML += '</div>';
 
-            new Popup()
-                .setLngLat(coordinates)
-                .setHTML(
-                    `<div>ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${date} UTC</div>${imagesHTML}`
-                )
-                .addTo(map);
+            pop.setHTML(innerHTML + imagesHTML);
+
+            if (addedToMap === false) {
+                pop.addTo(map);
+            }
         });
     });
 
@@ -396,6 +405,27 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
 }
 
 const cacheName = 'fibershed-example-cache-v1';
+
+async function alreadyCached(urls: string[]): Promise<[boolean, string[]]> {
+    const promises: Promise<boolean>[] = [];
+    const cache = await caches.open(cacheName);
+    urls.forEach((url) => {
+        promises.push(
+            cache.match(url).then(resp => {
+                return !!resp;
+            })
+        );
+    });
+
+    const results = await Promise.all(promises);
+    for (let i = 0; i < results.length; i++) {
+        if (results[i] === false) {
+            return [false, urls];
+        }
+    }
+
+    return [true, urls];
+}
 
 async function cacheImage(url: string): Promise<string> {
     const cache = await caches.open(cacheName);
