@@ -356,34 +356,14 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        let innerHTML = `<div>ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${date} UTC</div>`;
-        const pop = new Popup().setLngLat(coordinates).setHTML(innerHTML)
-        let addedToMap = false;
-
-        driveImageURLsFromDataID(id, imageIDs).then(urls => alreadyCached(urls)).then(([cached, urls]) => {
-            if (cached === false) {
-                pop.addTo(map);
-                addedToMap = true;
-            }
-
-            const promises: Promise<string>[] = [];
-            urls.forEach((url) => {
-                promises.push(cacheImage(url));
-            });
-
-            return Promise.all(promises);
-        }).then(objURLs => {
+        driveImageURLsFromDataID(id, imageIDs).then(urls => {
+            let innerHTML = `<div>ID: ${id}<br>Magnitude: ${mag}<br>Tsunami: ${tsunami}<br>LatLon: (${coords[1].toFixed(4)}, ${coords[0].toFixed(4)})<br>Date: ${date} UTC</div>`;
             let imagesHTML = '<div style="display: flex; overflow-x: auto; gap: 8px; width: 100%;">';
-            objURLs.forEach((objURL) => {
-                imagesHTML += `<img src="${objURL}" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`;
+            urls.forEach((url) => {
+                imagesHTML += `<img src="${url}" referrerpolicy="no-referrer" style="height: 100%; max-height: 200px; width: auto; flex-shrink: 0;">`;
             });
             imagesHTML += '</div>';
-
-            pop.setHTML(innerHTML + imagesHTML);
-
-            if (addedToMap === false) {
-                pop.addTo(map);
-            }
+            new Popup().setLngLat(coordinates).setHTML(innerHTML + imagesHTML).addTo(map);
         });
     });
 
@@ -401,42 +381,6 @@ function createLayers(map: Map, featureCollection: any, imageIDs: ImageID[]) {
     map.on('mouseleave', 'clusters', () => {
         map.getCanvas().style.cursor = '';
     });
-}
-
-const cacheName = 'fibershed-example-cache-v1';
-
-async function alreadyCached(urls: string[]): Promise<[boolean, string[]]> {
-    const promises: Promise<boolean>[] = [];
-    const cache = await caches.open(cacheName);
-    urls.forEach((url) => {
-        promises.push(
-            cache.match(url).then(resp => {
-                return !!resp;
-            })
-        );
-    });
-
-    const results = await Promise.all(promises);
-    for (let i = 0; i < results.length; i++) {
-        if (results[i] === false) {
-            return [false, urls];
-        }
-    }
-
-    return [true, urls];
-}
-
-async function cacheImage(url: string): Promise<string> {
-    const cache = await caches.open(cacheName);
-    let response = await cache.match(url);
-
-    if (!response) {
-        response = await fetchErrorCheck(url);
-        await cache.put(url, response.clone());
-    }
-
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
 }
 
 function dataCSVToFeatureCollection(csv: string): any {
@@ -513,7 +457,7 @@ function imageIDsJSONToArray(imageIDsJSON: any): ImageID[] {
 async function driveImageURLsFromDataID(dataID: string, imageIDs: ImageID[]): Promise<string[]> {
     return imageIDs.reduce((acc, imageID) => {
         if (imageID.name.includes(dataID)) {
-            acc.push(`https://www.googleapis.com/drive/v3/files/${imageID.id}?alt=media&quotaUser=${quotaUserID}&key=${googleAPIKey}`);
+            acc.push(`https://lh3.googleusercontent.com/d/${imageID.id}`);
         }
         return acc;
     }, [] as string[]);
